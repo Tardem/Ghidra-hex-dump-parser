@@ -88,7 +88,8 @@ void set_path(int argc, char *argv[], char names[][128]){
 	return;
 }
 
-void open_files(int *in, int *out, char str[][128]){
+void open_files(int *in, int *out, char str[][128], int* fsize){
+	struct stat st;
 	*in = open(str[0], O_RDONLY);
 	if(str[1][0]=='\0') *out=STDOUT_FILENO;
 	else *out=open(str[1], O_WRONLY | O_CREAT);
@@ -96,10 +97,15 @@ void open_files(int *in, int *out, char str[][128]){
 		puts("someting went wrong with opening files");
 		exit(-1);
 	}
+	if(fstat(*in, &st)<0){
+		puts("fstat called error");
+		exit(-1);
+	}
+	*fsize=st.st_size;
 }
 
-void map_file(int infd, char **ptr){
-	*ptr = mmap(NULL, MEMORY_SIZE, PROT_READ, MAP_SHARED, infd, 0);
+void map_file(int infd, char **ptr, int fsize){
+	*ptr = mmap(NULL, fsize+1, PROT_READ, MAP_SHARED, infd, 0);
 	if(*ptr==MAP_FAILED){
 		puts("something went wrong with mapping output file");
 		exit(-1);
@@ -108,9 +114,9 @@ void map_file(int infd, char **ptr){
 	return;
 }
 
-void reading(char *ptr, char *buf){
+void reading(char *ptr, char *buf, int fsize){
 	int i, j;
-	for(i=0, j=0; ptr[i]!='\0' && i<BUF_SIZE; i++){
+	for(i=0, j=0; i<fsize && i<BUF_SIZE; i++){
 		if(ptr[i]=='h'){
 			buf[j++]=ptr[i-2];
 			buf[j++]=ptr[i-1];
@@ -125,20 +131,19 @@ void printing(int oufd, char *buf){
 	close(oufd);
 }
 
-int convert_to_hex(char *str){
+int convert_to_hex(char *str, int fsize){
 	int i;
-	for(i=0; str[i]!='\0'; i++){
+	for(i=0; i<fsize; i++){
 		if(str[i]>=48 && str[i]<=57)str[i]=str[i]-48;
 		else str[i]=str[i]-55;
 	}
 	return i; //amount of elements
 }
 
-char *convert_to_int(char *str){
+char *convert_to_int(char *str, int fsize){
 	char *new_str = malloc(BUF_SIZE*10);
 	int j=0, k=0, n=0, c=0;
-	convert_to_hex(str);
-	int len = strlen(str);
+	int len = convert_to_hex(str, fsize);
 	for(k=0; k+3<len; k+=4){
 		c = snprintf(&new_str[n], BUF_SIZE*10 -n, "%d, ", str[k]*16*16*16 + str[k+1]*16*16 + str[k+2]*16 +str[k+3]);
 		n+=c;
@@ -147,11 +152,10 @@ char *convert_to_int(char *str){
 	return new_str;
 }	
 
-char *convert_to_hex_chains(char *str){
+char *convert_to_hex_chains(char *str, int fsize){
 	int n=0, c=0, k=0, i=0;
-	int len = strlen(str);
 	char *new_str=malloc(BUF_SIZE*4);
-	for(i=0, k=0; i+1<len; i+=2, k+=4){
+	for(i=0, k=0; i+1<fsize; i+=2, k+=4){
 		c = snprintf(&new_str[n], BUF_SIZE*4-n, "0x%c%c, ", str[i], str[i+1]);
 		n+=c;
 	}
@@ -159,10 +163,10 @@ char *convert_to_hex_chains(char *str){
 	return new_str;
 }
 
-void convert_to_ascii(char *str){
+void convert_to_ascii(char *str, int fsize){
 	int j;
 	int k;
-	int i = convert_to_hex(str);
+	int i = convert_to_hex(str, fsize);
 	//well, hex numbers at ghidra always come in pairs 
 	for(j=0, k=0; j<i/2; j++, k+=2){
 		str[j]=str[k]*16+str[k+1];
@@ -178,6 +182,7 @@ int main(int argc, char *argv[]){
 	uint32_t flag=0;
 	int input;
 	int output;
+	int fsize=0;
 	char *fptr;
 
 	check_input(argc, argv);
@@ -187,24 +192,25 @@ int main(int argc, char *argv[]){
 	set_path(argc, argv, paths);
 	
 
-	open_files(&input, &output, paths);
+	open_files(&input, &output, paths, &fsize);
 
-	map_file(input,&fptr);
+	map_file(input,&fptr, fsize);
 
-	reading(fptr, buffer);
+	reading(fptr, buffer, fsize);
 	
 
 	if((flag&ASCII)==ASCII){
-		convert_to_ascii(buffer);
+		convert_to_ascii(buffer, fsize);
 	}
 	else if((flag&HEX)==HEX){
-		buffer = convert_to_hex_chains(buffer);
+		buffer = convert_to_hex_chains(buffer, fsize);
 	}
 	else if((flag&DIGITS)==DIGITS){
-		buffer = convert_to_int(buffer);
+		buffer = convert_to_int(buffer, fsize);
 	}	
 	printing(output, buffer);
 
-	munmap(fptr, MEMORY_SIZE);
+	munmap(fptr, fsize+1);
 	free(buffer);
 }
+
