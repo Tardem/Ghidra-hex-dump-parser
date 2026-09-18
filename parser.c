@@ -100,7 +100,7 @@ void open_files(int *in, int *out, char str[][128]){
 
 void map_file(int infd, char **ptr){
 	*ptr = mmap(NULL, MEMORY_SIZE, PROT_READ, MAP_SHARED, infd, 0);
-	if(*ptr==NULL){
+	if(*ptr==MAP_FAILED){
 		puts("something went wrong with mapping output file");
 		exit(-1);
 	}
