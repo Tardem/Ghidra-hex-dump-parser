@@ -2,23 +2,40 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <stdint.h>
+#include <sys/mman.h>
 
-#define BUF_SIZE 2044
-#define S 1
-#define F (1<<1)
-#define A (1<<2)
-#define H (1<<3)
+#define BUF_SIZE 2048
+#define MEMORY_SIZE 1024*8
+#define NAME_SIZE 128
+
+
+#define ASCII (1)
+#define HEX (1<<1)
+#define DIGITS (1<<2)
+
+
 /*
 flags: 
--s - print at screen
--f - print in the file
--sf print at screen and in the file
 -a - convert to ascii
--h - make chain of hex-symbols like "0xaa, 0xbb"
+-i - convert to int
+-h - make chain of hex-symbols 
+TODO: make one-byte, 2-bytes, 4- and 8-bytes chains
+
 example: ./parser -sf encode.txt decode.txt
-
-
 */
+
+
+
+typedef struct{
+	char symbol;
+	uint8_t code;
+} OPTIONS;
+
+
+
 void close_all(FILE *in, FILE *out){
 	if(in!=NULL){
 		fclose(in);
@@ -29,28 +46,123 @@ void close_all(FILE *in, FILE *out){
 	return;
 }
 
-void flag_setup(char *f, char *opt){
-	for(int i=0; opt[i]!='\0'; i++){
-		if(opt[i]=='s')*f|=1;
-		else if(opt[i]=='f')*f|=(1<<1);
-		else if(opt[i]=='a')*f|=(1<<2);
-		else if(opt[i]=='h')*f|=(1<<3);
-	}
-	if((((*f)&(1<<2))==A) && (((*f)&(1<<3))==H)){
-		puts("program cant make ascii and hex-code in one time");
+void check_input(int amount, char *argv[]){
+	if(amount<3){
+		puts("too few arguments");
 		exit(-1);
 	}
+	for(int i=1; i<amount; i++){
+		if(argv[i][0]=='-')return;
+	}
+	puts("where is flag?");
+	exit(-1);
+}
+
+void set_flag(uint32_t *flag, char *argv[], int argc, OPTIONS opt[]){
+	for(int i=1; i<argc; i++){
+		if(argv[i][0]=='-'){
+			for(int j=0; opt[j].code!=0; j++){
+				if(opt[j].symbol==argv[i][1]){
+					(*flag)|=opt[j].code;
+				}
+			}
+		}
+	}
+}
+
+void set_path(int argc, char *argv[], char names[][128]){
+	char is_first=0;
+	for(int i=1; i<argc; i++){
+		if(argv[i][0]=='-')continue;
+		if(is_first==0){
+			strncpy(names[0], argv[i], NAME_SIZE-1); //copy first name as source of data
+			names[0][NAME_SIZE-1]='\0';
+			is_first=1;
+			continue;
+		}
+		strncpy(names[1], argv[i], NAME_SIZE-1);
+		names[1][NAME_SIZE-1]='\0';
+		return;
+	}
+	names[1][0]='\0';
 	return;
 }
 
-void convert_to_ascii(char *str){
+void open_files(int *in, int *out, char str[][128]){
+	*in = open(str[0], O_RDONLY);
+	if(str[1][0]=='\0') *out=STDOUT_FILENO;
+	else *out=open(str[1], O_WRONLY | O_CREAT);
+	if(*in<0 || *out<0){
+		puts("someting went wrong with opening files");
+		exit(-1);
+	}
+}
+
+void map_file(int infd, char **ptr){
+	*ptr = mmap(NULL, MEMORY_SIZE, PROT_READ, MAP_SHARED, infd, 0);
+	if(*ptr==NULL){
+		puts("something went wrong with mapping output file");
+		exit(-1);
+	}
+	close(infd);
+	return;
+}
+
+void reading(char *ptr, char *buf){
+	int i, j;
+	for(i=0, j=0; ptr[i]!='\0' && i<BUF_SIZE; i++){
+		if(ptr[i]=='h'){
+			buf[j++]=ptr[i-2];
+			buf[j++]=ptr[i-1];
+		}
+	}
+	buf[j]='\0';
+}
+
+void printing(int oufd, char *buf){
+	int buf_len = strlen(buf);
+	write(oufd, buf, buf_len);
+	close(oufd);
+}
+
+int convert_to_hex(char *str){
 	int i;
-	int j;
-	int k;
 	for(i=0; str[i]!='\0'; i++){
 		if(str[i]>=48 && str[i]<=57)str[i]=str[i]-48;
 		else str[i]=str[i]-55;
 	}
+	return i; //amount of elements
+}
+
+char *convert_to_int(char *str){
+	char *new_str = malloc(BUF_SIZE*10);
+	int j=0, k=0, n=0, c=0;
+	convert_to_hex(str);
+	int len = strlen(str);
+	for(k=0; k+3<len; k+=4){
+		c = snprintf(&new_str[n], BUF_SIZE*10 -n, "%d, ", str[k]*16*16*16 + str[k+1]*16*16 + str[k+2]*16 +str[k+3]);
+		n+=c;
+	}
+	free(str);
+	return new_str;
+}	
+
+char *convert_to_hex_chains(char *str){
+	int n=0, c=0, k=0, i=0;
+	int len = strlen(str);
+	char *new_str=malloc(BUF_SIZE*4);
+	for(i=0, k=0; i+1<len; i+=2, k+=4){
+		c = snprintf(&new_str[n], BUF_SIZE*4-n, "0x%c%c, ", str[i], str[i+1]);
+		n+=c;
+	}
+	free(str);
+	return new_str;
+}
+
+void convert_to_ascii(char *str){
+	int j;
+	int k;
+	int i = convert_to_hex(str);
 	//well, hex numbers at ghidra always come in pairs 
 	for(j=0, k=0; j<i/2; j++, k+=2){
 		str[j]=str[k]*16+str[k+1];
@@ -59,77 +171,40 @@ void convert_to_ascii(char *str){
 
 }
 
-char* convert_to_hex_chain(char *str){
-	char *new_str=malloc(BUF_SIZE*4);
-	int i;
-	int k;
-	for(i=0, k=0; str[i]!='\0'; i+=2, k+=6){
-		new_str[k]='0';
-		new_str[k+1]='x';
-		new_str[k+2]=str[i];
-		new_str[k+3]=str[i+1];
-		new_str[k+4]=',';
-		new_str[k+5]=' ';
-	}
-	new_str[k]='\0';
-	return new_str;
-}
-
-void print(char f, char *str, FILE *output){
-	if((f&1)==S){	
-		printf("%s", str);
-	}
-	if((f&(1<<1))==F){
-		fprintf(output, "%s", str);
-	}
-}
-
 int main(int argc, char *argv[]){
-	char str_el;
-	char *output_string=malloc(BUF_SIZE);
-	char flags[]={'s', 'f', '\0'};
-	char flag=0; // 1-th bit = -s, 2-th = -f 3-th =-a 4-th = -h
-	int i;
-	FILE *input=NULL;
-	FILE *output=NULL;	
-	if(argc<3){
-		puts("please, enter the params");		
-		exit(-1);	
-	}
-	flag_setup(&flag, argv[1]);
-	input=fopen(argv[2], "rb");
-	if(input==NULL){
-		printf("ERROR. Program cant open file %s", argv[2]);
-		exit(-1);
+	char paths[2][128]={0}; //first - input, second - output
+	char *buffer = malloc(BUF_SIZE);
+	OPTIONS opt[]={{'a', ASCII}, {'h', HEX}, {'d', DIGITS}, {0, 0}};
+	uint32_t flag=0;
+	int input;
+	int output;
+	char *fptr;
 
+	check_input(argc, argv);
+
+	set_flag(&flag, argv, argc, opt);
+	
+	set_path(argc, argv, paths);
+	
+
+	open_files(&input, &output, paths);
+
+	map_file(input,&fptr);
+
+	reading(fptr, buffer);
+	
+
+	if((flag&ASCII)==ASCII){
+		convert_to_ascii(buffer);
 	}
-	if((flag&(1<<1))==F){
-	       	if(argc<4){
-	       		puts("enter output file!");
-			exit(-1);
-	       	}	
-		output=fopen(argv[3], "wb");
-		if(output==NULL){
-			printf("ERROR. Program cant open file %s", argv[3]);
-			exit(-1);
-		}
+	else if((flag&HEX)==HEX){
+		buffer = convert_to_hex_chains(buffer);
 	}
-	for(i=0; fread(&str_el, sizeof(char), 1, input)!=0; i+=2){
-		if(str_el=='h'){
-			fseek(input, -3, SEEK_CUR);
-			fread((output_string+i), sizeof(char), 2, input);
-			fseek(input, 1, SEEK_CUR);
-		}
-		else i-=2;
-	}
-	output_string[i]='\0';
-	if((flag&(1<<2))==A){
-		puts("start converting");
-		convert_to_ascii(output_string);
-	}
-	else if((flag&(1<<3))==H){
-		output_string=convert_to_hex_chain(output_string);
-	}
-	print(flag, output_string, output);
-	close_all(input, output);
+	else if((flag&DIGITS)==DIGITS){
+		buffer = convert_to_int(buffer);
+	}	
+	printing(output, buffer);
+
+	munmap(fptr, MEMORY_SIZE);
+	free(buffer);
 }
