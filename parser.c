@@ -14,17 +14,22 @@
 
 #define ASCII (1)
 #define HEX (1<<1)
-#define DIGITS (1<<2)
-
+#define INTEGER (1<<2)
+#define CHAIN1 (1<<3)
+#define CHAIN2 (1<<4)
+#define CHAIN4 (1<<5)
+#define CHAIN8 (1<<6)
 
 /*
 flags: 
 -a - convert to ascii
 -i - convert to int
--h - make chain of hex-symbols 
-TODO: make one-byte, 2-bytes, 4- and 8-bytes chains
+-h - make chain of hex-symbols
+-h1, -h2, -h4, -h8 - codes for lenth of chain 
+TODO: 
+1. make one-byte, 2-bytes, 4- and 8-bytes chains
+2. make functions for check flags(for example, -h and -i cannot stay at the same time)
 
-example: ./parser -sf encode.txt decode.txt
 */
 
 
@@ -36,39 +41,116 @@ typedef struct{
 
 
 
-void close_all(FILE *in, FILE *out){
-	if(in!=NULL){
-		fclose(in);
+
+int check_hex(int second, int first){
+	if((second>=48 && second<=57) || (second>=65 && second<=70)){
+		if((first>=48 && first<=57) || (first>=65 && first<=70)){
+			return 1;
+		}
 	}
-	if(out!=NULL){
-		fclose(out);
-	}
-	return;
+	return 0;
+
 }
 
-void check_input(int amount, char *argv[]){
+
+void check_input(int amount, char *argv[], OPTIONS opt[]){
+	int i, valid_flag;
 	if(amount<3){
 		puts("too few arguments");
 		exit(-1);
 	}
-	for(int i=1; i<amount; i++){
-		if(argv[i][0]=='-')return;
+	for(i=1; i<amount; i++){
+		if(argv[i][0]=='-')break;
 	}
-	puts("where is flag?");
-	exit(-1);
+	if(i>=amount){
+		puts("you are forgot the \"-\" for flag");
+		exit(-1);
+	}
+	for(int j=1; argv[i][j]!='\0'; j++){
+		valid_flag=0;
+		for(int k=0; opt[k].code!=0; k++){
+			if(argv[i][j]==opt[k].symbol){
+				valid_flag=1;
+				break;
+			}
+			
+		}
+		if(valid_flag==0){
+				printf("you are inter uncorrect flag \"%c\"", argv[i][j]);
+				exit(-1);
+			}	
+	}
 }
 
 void set_flag(uint32_t *flag, char *argv[], int argc, OPTIONS opt[]){
 	for(int i=1; i<argc; i++){
 		if(argv[i][0]=='-'){
 			for(int j=0; opt[j].code!=0; j++){
-				if(opt[j].symbol==argv[i][1]){
-					(*flag)|=opt[j].code;
+				for(int k=1; argv[i][k]!='\0'; k++){
+					if(opt[j].symbol==argv[i][k]){
+						(*flag)|=opt[j].code;
+					}	
 				}
 			}
+			return;
 		}
 	}
 }
+
+
+//check flags:
+
+
+int check_main_flags(uint32_t flag, OPTIONS opt[]){
+	int i=0, j=0;
+	char  main_flag=0; //-h, -i, -a
+	for(i=0; opt[i].symbol!='1'; i++){
+		if(main_flag){
+			if((flag&opt[i].code)==opt[i].code){
+				puts("you enter more than one main flag!");
+				exit(-1);
+			}
+		}
+		else if((flag&opt[i].code)==opt[i].code){
+			main_flag=1;
+		}
+	}
+	if((flag&HEX)==HEX){
+		return 1;
+	}
+	return 0;
+}
+
+
+void check_chains_flag(uint32_t flag, OPTIONS opt[], int is_hex_set){
+	int i;
+	int chain_flag_set=0;
+	//begin from i=3, becouse chain-flags located starting from this num
+	for(i=3; opt[i].code!=0; i++){
+		if(chain_flag_set){
+			if((flag&opt[i].code)==opt[i].code){
+				puts("you are enter more than one chain flag");
+				exit(-1);
+			}	
+		}
+		if((flag&opt[i].code)==opt[i].code){
+			if(!is_hex_set){
+				puts("you cant use chain flag without flah -h");
+				exit(-1);
+			}
+			chain_flag_set=1;
+		}
+	}	
+}
+
+void check_flags(uint32_t flag, OPTIONS opt[]){
+	int is_hex_set;
+	is_hex_set = check_main_flags(flag, opt);
+	check_chains_flag(flag, opt, is_hex_set);
+}
+
+
+
 
 void set_path(int argc, char *argv[], char names[][128]){
 	char is_first=0;
@@ -88,16 +170,20 @@ void set_path(int argc, char *argv[], char names[][128]){
 	return;
 }
 
+
+//file section
+
+
 void open_files(int *in, int *out, char str[][128], int* fsize){
 	struct stat st;
 	*in = open(str[0], O_RDONLY);
 	if(str[1][0]=='\0') *out=STDOUT_FILENO;
-	else *out=open(str[1], O_WRONLY | O_CREAT);
+	else *out=open(str[1], O_WRONLY | O_CREAT | O_TRUNC, (mode_t)0644);
 	if(*in<0 || *out<0){
 		puts("someting went wrong with opening files");
 		exit(-1);
 	}
-	if(fstat(*in, &st)<0){
+	if(fstat((*in), &st)<0){
 		puts("fstat called error");
 		exit(-1);
 	}
@@ -105,7 +191,7 @@ void open_files(int *in, int *out, char str[][128], int* fsize){
 }
 
 void map_file(int infd, char **ptr, int fsize){
-	*ptr = mmap(NULL, fsize+1, PROT_READ, MAP_SHARED, infd, 0);
+	*ptr = mmap(NULL, fsize, PROT_READ, MAP_SHARED, infd, 0);
 	if(*ptr==MAP_FAILED){
 		puts("something went wrong with mapping output file");
 		exit(-1);
@@ -114,15 +200,22 @@ void map_file(int infd, char **ptr, int fsize){
 	return;
 }
 
-void reading(char *ptr, char *buf, int fsize){
+
+
+//read and write
+
+
+
+void reading(char *ptr, char *buf, int fsize, int *data_len){
 	int i, j;
-	for(i=0, j=0; i<fsize && i<BUF_SIZE; i++){
-		if(ptr[i]=='h'){
-			buf[j++]=ptr[i-2];
-			buf[j++]=ptr[i-1];
+	for(i=2, j=0; i<fsize; i++){
+		if(ptr[i]=='h' && check_hex(ptr[i-2], ptr[i-1])){
+				buf[j++]=ptr[i-2];
+				buf[j++]=ptr[i-1];
+			}
 		}
-	}
 	buf[j]='\0';
+	*data_len=j;
 }
 
 void printing(int oufd, char *buf){
@@ -131,86 +224,101 @@ void printing(int oufd, char *buf){
 	close(oufd);
 }
 
-int convert_to_hex(char *str, int fsize){
+
+//converting section
+
+
+int convert_to_hex(char *str, int data_len){
 	int i;
-	for(i=0; i<fsize; i++){
+	for(i=0; i<data_len; i++){
 		if(str[i]>=48 && str[i]<=57)str[i]=str[i]-48;
 		else str[i]=str[i]-55;
 	}
+	str[i-1]='\0';
 	return i; //amount of elements
 }
 
-char *convert_to_int(char *str, int fsize){
-	char *new_str = malloc(BUF_SIZE*10);
+char *convert_to_int(char *str, int data_len){
+	char *new_str = malloc(data_len*10);
 	int j=0, k=0, n=0, c=0;
-	int len = convert_to_hex(str, fsize);
+	int len = convert_to_hex(str, data_len);
 	for(k=0; k+3<len; k+=4){
-		c = snprintf(&new_str[n], BUF_SIZE*10 -n, "%d, ", str[k]*16*16*16 + str[k+1]*16*16 + str[k+2]*16 +str[k+3]);
+		c = snprintf(&new_str[n], data_len*10 -n, "%d, ", (str[k]<<12) + (str[k+1]<<8) + (str[k+2]<<4) +str[k+3]);
 		n+=c;
 	}
+	new_str[n]='\0';
 	free(str);
 	return new_str;
 }	
 
-char *convert_to_hex_chains(char *str, int fsize){
+char *convert_to_hex_chains(char *str, int data_len){
 	int n=0, c=0, k=0, i=0;
-	char *new_str=malloc(BUF_SIZE*4);
-	for(i=0, k=0; i+1<fsize; i+=2, k+=4){
-		c = snprintf(&new_str[n], BUF_SIZE*4-n, "0x%c%c, ", str[i], str[i+1]);
+	char *new_str=malloc(data_len*4);
+	for(i=0; i+1<data_len; i+=2){
+		c = snprintf(&new_str[n], data_len*4-n, "0x%c%c, ", str[i], str[i+1]);
 		n+=c;
 	}
+	new_str[n]='\0';
 	free(str);
 	return new_str;
 }
 
-void convert_to_ascii(char *str, int fsize){
+char *convert_to_ascii(char *str, int data_len){
 	int j;
 	int k;
-	int i = convert_to_hex(str, fsize);
+	int i = convert_to_hex(str, data_len);
+	char *new_str = malloc(i);
 	//well, hex numbers at ghidra always come in pairs 
 	for(j=0, k=0; j<i/2; j++, k+=2){
-		str[j]=str[k]*16+str[k+1];
+		new_str[j]=str[k]*16+str[k+1];
 	}
-	str[j]='\0';
-
+	new_str[j]='\0';
+	free(str);
+	return new_str;
 }
+
+
+
 
 int main(int argc, char *argv[]){
 	char paths[2][128]={0}; //first - input, second - output
-	char *buffer = malloc(BUF_SIZE);
-	OPTIONS opt[]={{'a', ASCII}, {'h', HEX}, {'d', DIGITS}, {0, 0}};
+	OPTIONS opt[]={{'a', ASCII}, {'h', HEX}, {'i', INTEGER}, {'1', CHAIN1}, {'2', CHAIN2}, {'4', CHAIN4}, {'8', CHAIN8}, {0, 0}};
 	uint32_t flag=0;
 	int input;
 	int output;
 	int fsize=0;
+	int data_len=0;
 	char *fptr;
 
-	check_input(argc, argv);
+	check_input(argc, argv, opt);
 
 	set_flag(&flag, argv, argc, opt);
 	
+	check_flags(flag, opt);
+
 	set_path(argc, argv, paths);
 	
 
 	open_files(&input, &output, paths, &fsize);
-
+	char *buffer = malloc(fsize);
 	map_file(input,&fptr, fsize);
 
-	reading(fptr, buffer, fsize);
 	
-
+	reading(fptr, buffer, fsize, &data_len);
+	
 	if((flag&ASCII)==ASCII){
-		convert_to_ascii(buffer, fsize);
+		buffer = convert_to_ascii(buffer, data_len);
 	}
 	else if((flag&HEX)==HEX){
-		buffer = convert_to_hex_chains(buffer, fsize);
+		buffer = convert_to_hex_chains(buffer, data_len);
 	}
-	else if((flag&DIGITS)==DIGITS){
-		buffer = convert_to_int(buffer, fsize);
+	else if((flag&INTEGER)==INTEGER){
+		buffer = convert_to_int(buffer, data_len);
 	}	
+	
 	printing(output, buffer);
 
-	munmap(fptr, fsize+1);
+	munmap(fptr, fsize);
 	free(buffer);
 }
 
