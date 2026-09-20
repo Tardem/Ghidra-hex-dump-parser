@@ -25,14 +25,9 @@ flags:
 -a - convert to ascii
 -i - convert to int
 -h - make chain of hex-symbols
--h1, -h2, -h4, -h8 - codes for lenth of chain 
-TODO: 
-1. make one-byte, 2-bytes, 4- and 8-bytes chains
-2. make functions for check flags(for example, -h and -i cannot stay at the same time)
+-h1, -h2, -h4, -h8 - codes for amount of bytes in one element of input str 
 
 */
-
-
 
 typedef struct{
 	char symbol;
@@ -122,7 +117,7 @@ int check_main_flags(uint32_t flag, OPTIONS opt[]){
 }
 
 
-void check_chains_flag(uint32_t flag, OPTIONS opt[], int is_hex_set){
+void check_chains_flag(uint32_t flag, OPTIONS opt[], int is_hex_set, int *amount_of_bytes){
 	int i;
 	int chain_flag_set=0;
 	//begin from i=3, becouse chain-flags located starting from this num
@@ -139,14 +134,21 @@ void check_chains_flag(uint32_t flag, OPTIONS opt[], int is_hex_set){
 				exit(-1);
 			}
 			chain_flag_set=1;
+			*amount_of_bytes=opt[i].symbol-48;
 		}
+	}
+	if(chain_flag_set==0 && (flag&HEX)==HEX){
+		puts("you forget enter amount of half-bytes at on element");
+		exit(-1);
 	}	
+	printf("\n\namount_of_bytes: %d\n\n", *amount_of_bytes);
+	fflush(stdout);
 }
 
-void check_flags(uint32_t flag, OPTIONS opt[]){
+void check_flags(uint32_t flag, OPTIONS opt[], int *amount_of_bytes){
 	int is_hex_set;
 	is_hex_set = check_main_flags(flag, opt);
-	check_chains_flag(flag, opt, is_hex_set);
+	check_chains_flag(flag, opt, is_hex_set, amount_of_bytes);
 }
 
 
@@ -251,11 +253,17 @@ char *convert_to_int(char *str, int data_len){
 	return new_str;
 }	
 
-char *convert_to_hex_chains(char *str, int data_len){
-	int n=0, c=0, k=0, i=0;
+//amount_of_bytes - amount of bytes in one element
+char *convert_to_hex_chains(char *str, int data_len, int amount_of_bytes){
+	int n=0, c=0, k=0, i=0, j=0;
+	char temp_arr[amount_of_bytes*2+1]; //amount_of_bytes + "0x" + ", "
 	char *new_str=malloc(data_len*4);
-	for(i=0; i+1<data_len; i+=2){
-		c = snprintf(&new_str[n], data_len*4-n, "0x%c%c, ", str[i], str[i+1]);
+	for(i=0; i+1<data_len; i+=(amount_of_bytes*2)){
+		for(j=0; j<amount_of_bytes*2; j++){
+			temp_arr[j]=str[i+j];
+		}
+		temp_arr[j]='\0';
+		c = snprintf(&new_str[n], data_len*4-n, "0x%s, ", temp_arr);
 		n+=c;
 	}
 	new_str[n]='\0';
@@ -288,13 +296,14 @@ int main(int argc, char *argv[]){
 	int output;
 	int fsize=0;
 	int data_len=0;
+	int amount_of_bytes=0;
 	char *fptr;
 
 	check_input(argc, argv, opt);
 
 	set_flag(&flag, argv, argc, opt);
 	
-	check_flags(flag, opt);
+	check_flags(flag, opt, &amount_of_bytes);
 
 	set_path(argc, argv, paths);
 	
@@ -310,7 +319,7 @@ int main(int argc, char *argv[]){
 		buffer = convert_to_ascii(buffer, data_len);
 	}
 	else if((flag&HEX)==HEX){
-		buffer = convert_to_hex_chains(buffer, data_len);
+		buffer = convert_to_hex_chains(buffer, data_len, amount_of_bytes);
 	}
 	else if((flag&INTEGER)==INTEGER){
 		buffer = convert_to_int(buffer, data_len);
