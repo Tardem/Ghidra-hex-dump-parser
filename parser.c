@@ -87,7 +87,6 @@ void set_flag(uint32_t *flag, char *argv[], int argc, OPTIONS opt[]){
 					}	
 				}
 			}
-			return;
 		}
 	}
 }
