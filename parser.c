@@ -214,12 +214,12 @@ void reading(char *ptr, char *buf, int fsize, int *data_len){
 				buf[j++]=ptr[i-1];
 			}
 		}
+	buf[j]='\0';
 	*data_len=j;
 }
 
-void printing(int oufd, char *buf){
-	int buf_len = strlen(buf);
-	write(oufd, buf, buf_len);
+void printing(int oufd, char *buf, int len_of_output_data){
+	write(oufd, buf, len_of_output_data);
 	close(oufd);
 }
 
@@ -236,48 +236,50 @@ int convert_to_hex(char *str, int data_len){
 	return i; //amount of elements
 }
 
-char *convert_to_int(char *str, int data_len){
-	char *new_str = malloc(data_len*10);
+char *convert_to_int(char *str, int *data_len){
+	char *new_str = malloc((*data_len)*10);
 	if(new_str==NULL){
 		puts("something went wrong with memory allocation for buffer in integer converter");
 		exit(-1);
 	}
 	int j=0, k=0, n=0, c=0;
-	int len = convert_to_hex(str, data_len);
+	int len = convert_to_hex(str, *data_len);
 	for(k=0; k+3<len; k+=4){
-		c = snprintf(&new_str[n], data_len*10 -n, "%d, ", (str[k]<<12) + (str[k+1]<<8) + (str[k+2]<<4) +str[k+3]);
+		c = snprintf(&new_str[n], (*data_len)*10 -n, "%d, ", (str[k]<<12) + (str[k+1]<<8) + (str[k+2]<<4) +str[k+3]);
 		n+=c;
 	}
+	*data_len=n;
 	free(str);
 	return new_str;
 }	
 
 //amount_of_bytes - amount of bytes in one element
-char *convert_to_hex_chains(char *str, int data_len, int amount_of_bytes){
+char *convert_to_hex_chains(char *str, int *data_len, int amount_of_bytes){
 	int n=0, c=0, k=0, i=0, j=0;
 	char temp_arr[amount_of_bytes*2+1]; //amount_of_bytes + "0x" + ", "
-	char *new_str=malloc(data_len*4);
+	char *new_str=malloc((*data_len)*4);
 	if(new_str==NULL){
 		puts("something went wrong with memory allocation for buffer in hexademical converter");
 		exit(-1);
 	}
-	for(i=0; i+1<data_len; i+=(amount_of_bytes*2)){
+	for(i=0; i+1<*data_len; i+=(amount_of_bytes*2)){
 		for(j=0; j<amount_of_bytes*2; j++){
 			temp_arr[j]=str[i+j];
 		}
 		temp_arr[j]='\0';
-		c = snprintf(&new_str[n], data_len*4-n, "0x%s, ", temp_arr);
+		c = snprintf(&new_str[n], (*data_len)*4-n, "0x%s, ", temp_arr);
 		n+=c;
 	}
 	new_str[n]='\0';
+	*data_len=n;
 	free(str);
 	return new_str;
 }
 
-char *convert_to_ascii(char *str, int data_len){
+char *convert_to_ascii(char *str, int *data_len){
 	int j;
 	int k;
-	int i = convert_to_hex(str, data_len);
+	int i = convert_to_hex(str, *data_len);
 	char *new_str = malloc(i);
 	if(new_str==NULL){
 		puts("something went wrong with memory allocation for buffer in ascii converter");
@@ -287,6 +289,7 @@ char *convert_to_ascii(char *str, int data_len){
 	for(j=0, k=0; j<i/2; j++, k+=2){
 		new_str[j]=str[k]*16+str[k+1];
 	}
+	*data_len=j;
 	free(str);
 	return new_str;
 }
@@ -326,16 +329,16 @@ int main(int argc, char *argv[]){
 	reading(fptr, buffer, fsize, &data_len);
 	
 	if((flag&ASCII)==ASCII){
-		buffer = convert_to_ascii(buffer, data_len);
+		buffer = convert_to_ascii(buffer, &data_len);
 	}
 	else if((flag&HEX)==HEX){
-		buffer = convert_to_hex_chains(buffer, data_len, amount_of_bytes);
+		buffer = convert_to_hex_chains(buffer, &data_len, amount_of_bytes);
 	}
 	else if((flag&INTEGER)==INTEGER){
-		buffer = convert_to_int(buffer, data_len);
+		buffer = convert_to_int(buffer, &data_len);
 	}	
 	
-	printing(output, buffer);
+	printing(output, buffer, data_len);
 
 	munmap(fptr, fsize);
 	free(buffer);
