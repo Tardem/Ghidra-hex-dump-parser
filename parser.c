@@ -141,8 +141,6 @@ void check_chains_flag(uint32_t flag, OPTIONS opt[], int is_hex_set, int *amount
 		puts("you forget enter amount of half-bytes at on element");
 		exit(-1);
 	}	
-	printf("\n\namount_of_bytes: %d\n\n", *amount_of_bytes);
-	fflush(stdout);
 }
 
 void check_flags(uint32_t flag, OPTIONS opt[], int *amount_of_bytes){
@@ -216,7 +214,6 @@ void reading(char *ptr, char *buf, int fsize, int *data_len){
 				buf[j++]=ptr[i-1];
 			}
 		}
-	buf[j]='\0';
 	*data_len=j;
 }
 
@@ -236,19 +233,21 @@ int convert_to_hex(char *str, int data_len){
 		if(str[i]>=48 && str[i]<=57)str[i]=str[i]-48;
 		else str[i]=str[i]-55;
 	}
-	str[i-1]='\0';
 	return i; //amount of elements
 }
 
 char *convert_to_int(char *str, int data_len){
 	char *new_str = malloc(data_len*10);
+	if(new_str==NULL){
+		puts("something went wrong with memory allocation for buffer in integer converter");
+		exit(-1);
+	}
 	int j=0, k=0, n=0, c=0;
 	int len = convert_to_hex(str, data_len);
 	for(k=0; k+3<len; k+=4){
 		c = snprintf(&new_str[n], data_len*10 -n, "%d, ", (str[k]<<12) + (str[k+1]<<8) + (str[k+2]<<4) +str[k+3]);
 		n+=c;
 	}
-	new_str[n]='\0';
 	free(str);
 	return new_str;
 }	
@@ -258,6 +257,10 @@ char *convert_to_hex_chains(char *str, int data_len, int amount_of_bytes){
 	int n=0, c=0, k=0, i=0, j=0;
 	char temp_arr[amount_of_bytes*2+1]; //amount_of_bytes + "0x" + ", "
 	char *new_str=malloc(data_len*4);
+	if(new_str==NULL){
+		puts("something went wrong with memory allocation for buffer in hexademical converter");
+		exit(-1);
+	}
 	for(i=0; i+1<data_len; i+=(amount_of_bytes*2)){
 		for(j=0; j<amount_of_bytes*2; j++){
 			temp_arr[j]=str[i+j];
@@ -276,11 +279,14 @@ char *convert_to_ascii(char *str, int data_len){
 	int k;
 	int i = convert_to_hex(str, data_len);
 	char *new_str = malloc(i);
+	if(new_str==NULL){
+		puts("something went wrong with memory allocation for buffer in ascii converter");
+		exit(-1);
+	}
 	//well, hex numbers at ghidra always come in pairs 
 	for(j=0, k=0; j<i/2; j++, k+=2){
 		new_str[j]=str[k]*16+str[k+1];
 	}
-	new_str[j]='\0';
 	free(str);
 	return new_str;
 }
@@ -309,7 +315,11 @@ int main(int argc, char *argv[]){
 	
 
 	open_files(&input, &output, paths, &fsize);
-	char *buffer = malloc(fsize);
+	char *buffer = malloc(fsize*2);
+	if(buffer==NULL){
+		puts("something went wrong with memory allocation for buffer");
+		exit(-1);
+	}
 	map_file(input,&fptr, fsize);
 
 	
