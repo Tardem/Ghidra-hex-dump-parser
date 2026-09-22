@@ -47,6 +47,12 @@ int check_hex(int second, int first){
 
 }
 
+int check_valid_flag(char str[], OPTIONS flag[]){
+	for(int i=1; str[i]!=0; i++){
+		if(flag[str[i]].code==0)return 0;
+	}
+	return 1;
+}
 
 void check_input(int amount, char *argv[], OPTIONS flag[]){
 	int i, valid_flag;
@@ -55,19 +61,16 @@ void check_input(int amount, char *argv[], OPTIONS flag[]){
 		exit(-1);
 	}
 	for(i=1; i<amount; i++){
-		if(argv[i][0]=='-')break;
-	}
-	if(i>=amount){
-		puts("you are forgot the \"-\" for flag");
-		exit(-1);
-	}
-	for(int j=1; argv[i][j]!='\0'; j++){
-			if(flag[argv[i][j]].symbol==0){
-				printf("you are enter invalid %c", argv[i][j]);
+		if(argv[i][0]=='-'){
+			if(check_valid_flag(argv[i], flag)==0){
+				puts("you are enter invalid flag!");
 				exit(-1);
 			}
+		}
 	}
 }
+
+
 
 void set_flag(uint32_t *flag, char *argv[], int argc, OPTIONS flags[]){
 	for(int i=1; i<argc; i++){
@@ -105,7 +108,7 @@ int check_main_flags(uint32_t flag, OPTIONS opt[]){
 	int i=0, j=0;
 	char  main_flag=0; //-h, -i, -a
 	char s[]={'h', 'i', 'a', 0};
-	for(i=0; i!=0; i++){
+	for(i=0; s[i]!=0; i++){
 		if(main_flag){
 			if((flag&opt[s[i]].code)==opt[s[i]].code){
 				puts("you enter more than one main flag!");
